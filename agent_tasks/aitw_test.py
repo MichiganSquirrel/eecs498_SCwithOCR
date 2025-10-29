@@ -66,6 +66,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--model_path', type=str, required=True)
 parser.add_argument('--qwen_path', type=str, required=True)
 parser.add_argument('--imgs_dir', type=str, required=True)
+# deepencoder options
+parser.add_argument('--replace_encoder', action='store_true', default=False)
+parser.add_argument('--deepencoder_path', type=str, default=None)
+parser.add_argument('--sam_checkpoint', type=str, default=None)
+parser.add_argument('--clip_checkpoint', type=str, default=None)
+parser.add_argument('--projector_checkpoint', type=str, default=None)
+parser.add_argument('--freeze_sam', action='store_true', default=True)
+parser.add_argument('--freeze_clip', action='store_true', default=False)
 args = parser.parse_args()
 
 model_path = args.model_path
@@ -74,6 +82,25 @@ qwen_path = args.qwen_path
 model = AutoPeftModelForCausalLM.from_pretrained(model_path, device_map="cuda", trust_remote_code=True).eval()  # load with lora checkpoint
 tokenizer = AutoTokenizer.from_pretrained(qwen_path, trust_remote_code=True)
 model.generation_config = GenerationConfig.from_pretrained(qwen_path, trust_remote_code=True)
+
+# optionally replace encoder
+if args.replace_encoder:
+    try:
+        import sys
+        if args.deepencoder_path and args.deepencoder_path not in sys.path:
+            sys.path.insert(0, args.deepencoder_path)
+        from integration.deepencoder_adapter import DeepEncoderVisionTower
+        if hasattr(model, 'transformer') and hasattr(model.transformer, 'visual'):
+            model.transformer.visual = DeepEncoderVisionTower(
+                deepencoder_path=args.deepencoder_path,
+                sam_checkpoint=args.sam_checkpoint,
+                clip_checkpoint=args.clip_checkpoint,
+                projector_checkpoint=args.projector_checkpoint,
+                freeze_sam=args.freeze_sam,
+                freeze_clip=args.freeze_clip,
+            )
+    except Exception as e:
+        print('[Warn] replace_encoder failed:', e)
 
 aitw_imgs_dir = args.imgs_dir
 aitw_test = json.load(open('../data/aitw_data_test.json', 'r'))

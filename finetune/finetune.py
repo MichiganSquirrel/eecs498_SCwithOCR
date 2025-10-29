@@ -24,6 +24,14 @@ IGNORE_TOKEN_ID = LabelSmoother.ignore_index
 class ModelArguments:
     model_name_or_path: Optional[str] = field(default="Qwen/Qwen-7B")
     qwen_path: Optional[str] = field(default=None)
+    # deepencoder integration
+    replace_encoder: bool = False
+    deepencoder_path: Optional[str] = None
+    sam_checkpoint: Optional[str] = None
+    clip_checkpoint: Optional[str] = None
+    projector_checkpoint: Optional[str] = None
+    freeze_sam: bool = True
+    freeze_clip: bool = False
 
 
 @dataclass
@@ -311,6 +319,26 @@ def train():
         if training_args.use_lora and lora_args.q_lora
         else None,
     )
+
+    # Optionally replace the visual encoder with deepencoder
+    if getattr(model_args, 'replace_encoder', False):
+        try:
+            from integration.deepencoder_adapter import DeepEncoderVisionTower
+            if hasattr(model, 'transformer') and hasattr(model.transformer, 'visual'):
+                new_vision = DeepEncoderVisionTower(
+                    deepencoder_path=model_args.deepencoder_path,
+                    sam_checkpoint=model_args.sam_checkpoint,
+                    clip_checkpoint=model_args.clip_checkpoint,
+                    projector_checkpoint=model_args.projector_checkpoint,
+                    freeze_sam=model_args.freeze_sam,
+                    freeze_clip=model_args.freeze_clip,
+                )
+                model.transformer.visual = new_vision
+                rank0_print("[Info] Replaced visual encoder with DeepEncoderVisionTower.")
+            else:
+                rank0_print("[Warn] Model does not expose transformer.visual, skip replace_encoder.")
+        except Exception as e:
+            rank0_print(f"[Warn] Failed to load DeepEncoderVisionTower: {e}")
 
     # customized LoRA parameters
     target_modules = []

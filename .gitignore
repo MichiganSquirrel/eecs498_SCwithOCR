@@ -1,3 +1,108 @@
 .DS_Store
 __pycache__/
 *.ipynb_checkpoints
+
+# ===== Python =====
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ===== Model Weights / Checkpoints =====
+*.pth
+*.pt
+*.bin
+*.safetensors
+*.ckpt
+*.pkl
+*.h5
+*.hdf5
+*.onnx
+*.pb
+*.tflite
+*.pth.tar
+*.model
+
+# ===== Training Artifacts =====
+checkpoints/
+checkpoint/
+outputs/
+logs/
+runs/
+wandb/
+tensorboard/
+*.log
+
+# ===== Datasets / Data Artifacts =====
+data/
+dataset/
+datasets/
+*.json.gz
+*.csv
+*.tsv
+*.parquet
+*.arrow
+
+# ===== DeepEncoder / Encoder Weights =====
+encoder_weights/
+sam_encoder*.pth
+clip_encoder*.pth
+projector*.pth
+sam_encoder_adapted.pth
+sam_vit_b*.pth
+
+# ===== Local Images (large) =====
+mind2web_imgs/
+aitw_imgs/
+miniwob_imgs/
+screenspot_imgs/
+
+# ===== Environment / Secrets =====
+.env
+.env.*
+.venv
+venv/
+ENV/
+env/
+*.local
+*.env.local
+
+# ===== IDE / Editors =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# ===== Jupyter =====
+.ipynb_checkpoints
+.ipynb_checkpoints/
+
+# ===== Caches / Temps =====
+*.tmp
+*.temp
+*.bak
+*.cache
+.cache/
+*.pid
+*.seed
+
+# ===== Archives =====
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+*.dump
+
+# ===== System =====
+Thumbs.db

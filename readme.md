@@ -96,6 +96,144 @@ The prediction output represents the point of `(x, y)` or the bounding box of `(
 each value is a [0, 1] decimal number indicating the ratio of the corresponding position to the width or height of the image.
 We recommend using point for prediction because SeeClick is mainly trained for predicting click points on GUIs.
 
+***
+### Quick smoke test (sample data)
+
+We provide a minimal screenspot sample to verify environment/model wiring.
+
+1) Sample data
+- Images: use existing `assets/` (contains `test_img.png`)
+- Test JSON: `data/samples/screenspot_test/screenspot_web.json`
+
+2) Run
+```bash
+python pretrain/screenspot_test.py \
+  --qwen_path Qwen/Qwen-VL-Chat \
+  --lora_path Qwen-VL-Chat \
+  --screenspot_imgs assets \
+  --screenspot_test data/samples/screenspot_test \
+  --task web
+```
+
+Note: bbox in JSON uses `[left, top, width, height]` (pixels); the script normalizes it by image size.
+
+***
+### DeepEncoder weights extraction
+
+Use the helper script to extract encoder weights from the full model `deepseek-ai/DeepSeek-OCR`:
+
+```bash
+python scripts/extract_deepencoder_weights.py \
+  --model deepseek-ai/DeepSeek-OCR \
+  --out encoder_weights
+```
+
+This will produce:
+- `encoder_weights/sam_encoder.pth`
+- `encoder_weights/clip_encoder.pth`
+- `encoder_weights/projector.pth`
+
+These files are git-ignored by default.
+
+***
+## 使用 deepencoder 微调说明（中文）
+
+### 我们做了什么
+- 新增视觉塔适配器：`integration/deepencoder_adapter.py`，封装 DeepSeek-OCR 的 SAM + CLIP + Projector，并可替换原 `model.transformer.visual`。
+- 扩展微调脚本：`finetune/finetune.py` 新增可选参数（如 `--replace_encoder`、`--deepencoder_path`、`--sam_checkpoint` 等），支持在加载模型后替换视觉编码器。
+- 单卡省显存训练脚本：`finetune/finetune_single_gpu.sh`，默认 LoRA + ZeRO-2 + bf16 + gradient checkpointing，适合单张 V100/A100/A40。
+- 测试脚本支持替换：`agent_tasks/mind2web_test.py`、`agent_tasks/aitw_test.py`、`agent_tasks/miniwob_test.py` 均新增 `--replace_encoder` 相关参数，方便验证新 encoder。
+- 提供权重提取脚本：`scripts/extract_deepencoder_weights.py`，可从 `deepseek-ai/DeepSeek-OCR` 提取 `sam_encoder.pth`、`clip_encoder.pth`、`projector.pth`。
+- 提供最小可运行样例：`data/samples/screenspot_test/screenspot_web.json` + `assets/test_img.png`，用于冒烟测试。
+- 完善 `.gitignore`：忽略权重、数据、训练产物等大文件。
+
+### 环境准备
+1) 创建并激活环境（建议与 `agent_tasks/readme_agent.md` 保持一致）
+```bash
+conda create -n seeclick-env python=3.8 -y
+conda activate seeclick-env
+pip install -r requirements_agent.txt
+```
+
+2) 可选：如需使用 deepencoder，请准备 DeepSeek-OCR 代码与依赖
+- 获取 DeepSeek-OCR 仓库（含 `DeepSeek-OCR-vllm` 目录）
+- 安装其需要的依赖（如 `easydict` 等，具体以其官方 README 为准）
+
+### 下载模型与提取 encoder 权重
+方式A：从完整模型中提取（推荐）
+```bash
+python scripts/extract_deepencoder_weights.py \
+  --model deepseek-ai/DeepSeek-OCR \
+  --out encoder_weights
+```
+会生成：
+- `encoder_weights/sam_encoder.pth`
+- `encoder_weights/clip_encoder.pth`
+- `encoder_weights/projector.pth`
+
+方式B：直接提供 SAM checkpoint（如官方 SAM ViT-B），CLIP/Projector 走随机初始化或后续加载（不推荐，可能影响效果）。
+
+### 最小冒烟测试（验证环境/推理通路）
+```bash
+python pretrain/screenspot_test.py \
+  --qwen_path Qwen/Qwen-VL-Chat \
+  --lora_path Qwen-VL-Chat \
+  --screenspot_imgs assets \
+  --screenspot_test data/samples/screenspot_test \
+  --task web
+```
+说明：样例 JSON 的 bbox 为像素坐标 `[left, top, width, height]`，脚本会自动按图像尺寸归一化。
+
+### 使用新 encoder 启动单卡省显存微调
+脚本：`finetune/finetune_single_gpu.sh`
+```bash
+DEEPENCODER_PATH=/abs/path/to/DeepSeek-OCR/DeepSeek-OCR-vllm \
+SAM_CKPT=/abs/path/to/encoder_weights/sam_encoder.pth \
+CLIP_CKPT=/abs/path/to/encoder_weights/clip_encoder.pth \
+PROJ_CKPT=/abs/path/to/encoder_weights/projector.pth \
+MODEL_PATH=/abs/path/to/SeeClick-pretrain \
+QWEN_PATH=Qwen/Qwen-VL-Chat \
+DATA_PATH=/abs/path/to/mind2web_train_sft.json \
+OUT_DIR=./checkpoint_qwen \
+bash finetune/finetune_single_gpu.sh
+```
+参数说明（部分）：
+- `DEEPENCODER_PATH`：指向 deepencoder 代码目录（包含 `deepencoder/sam_vary_sdpa.py` 等文件），用于注入到 `sys.path`。
+- `SAM_CKPT`、`CLIP_CKPT`、`PROJ_CKPT`：提取的 encoder 权重（推荐方式A生成）。
+- `MODEL_PATH`：SeeClick 预训练基座（或 Qwen-VL 基座）。
+- `QWEN_PATH`：原始 Qwen-VL-Chat，用于 tokenizer 与 generation_config。
+- `DATA_PATH`：SFT 训练数据路径（如 mind2web 的 SFT json）。
+- 默认 LoRA + ZeRO-2 + bf16 + gradient checkpointing，单卡显存更友好。
+
+### 在测试脚本中启用新 encoder（可选）
+以 Mind2Web 为例：
+```bash
+python agent_tasks/mind2web_test.py \
+  --model_path /abs/path/to/finetuned-or-lora-checkpoint \
+  --qwen_path Qwen/Qwen-VL-Chat \
+  --imgs_dir /abs/path/to/mind2web_imgs \
+  --task website \
+  --replace_encoder \
+  --deepencoder_path /abs/path/to/DeepSeek-OCR/DeepSeek-OCR-vllm \
+  --sam_checkpoint /abs/path/to/encoder_weights/sam_encoder.pth \
+  --clip_checkpoint /abs/path/to/encoder_weights/clip_encoder.pth \
+  --projector_checkpoint /abs/path/to/encoder_weights/projector.pth \
+  --freeze_sam \
+  --freeze_clip
+```
+
+### 常见问题（FAQ）
+- 显存不够：
+  - 降低 `MB_SIZE`，增大 `GA_STEPS`（脚本中默认 4 和 8，可继续调小/调大）。
+  - 保持 `--use_lora` 与 `--gradient_checkpointing` 开启。
+  - 冻结 SAM（`--freeze_sam True`），必要时也冻结 CLIP（`--freeze_clip True`）。
+- 权重 key 不匹配：
+  - 使用提取脚本生成的 `sam_encoder.pth / clip_encoder.pth / projector.pth`。
+  - 若仍报错，检查 deepencoder 仓库版本与权重来源版本是否一致。
+- 维度不一致：
+  - `integration/deepencoder_adapter.py` 中 `projector_input_dim/projector_output_dim` 默认 1024，如出现维度不匹配，可按需调整为与你的 Qwen-VL 视觉塔期望一致的维度。
+
+
 Thanks to [Qwen-VL](https://github.com/QwenLM/Qwen-VL) for their powerful model and wonderful open-sourced work.
 
 ***
